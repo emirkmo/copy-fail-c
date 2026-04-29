@@ -16,11 +16,11 @@ jobs:
       matrix:
         target:
           - { arch: x86_64,  prefix: '',                    apt: '' }
-          - { arch: aarch64, prefix: aarch64-linux-gnu,     apt: gcc-aarch64-linux-gnu }
-          - { arch: armv7,   prefix: arm-linux-gnueabihf,   apt: gcc-arm-linux-gnueabihf }
-          - { arch: riscv64, prefix: riscv64-linux-gnu,     apt: gcc-riscv64-linux-gnu }
-          - { arch: ppc64le, prefix: powerpc64le-linux-gnu, apt: gcc-powerpc64le-linux-gnu }
-          - { arch: s390x,   prefix: s390x-linux-gnu,       apt: gcc-s390x-linux-gnu }
+          - { arch: aarch64, prefix: aarch64-linux-gnu,     apt: 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross' }
+          - { arch: armv7,   prefix: arm-linux-gnueabihf,   apt: 'gcc-arm-linux-gnueabihf linux-libc-dev-armhf-cross' }
+          - { arch: riscv64, prefix: riscv64-linux-gnu,     apt: 'gcc-riscv64-linux-gnu linux-libc-dev-riscv64-cross' }
+          - { arch: ppc64le, prefix: powerpc64le-linux-gnu, apt: 'gcc-powerpc64le-linux-gnu linux-libc-dev-ppc64el-cross' }
+          - { arch: s390x,   prefix: s390x-linux-gnu,       apt: 'gcc-s390x-linux-gnu linux-libc-dev-s390x-cross' }
     steps:
       - uses: actions/checkout@v4
       - name: install cross-toolchain

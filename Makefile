@@ -58,9 +58,22 @@ PAYLOAD_CFLAGS ?= -nostdlib -static -Os -s \
                   -Wl,-N \
                   -Wl,-z,max-page-size=0x10
 
-.PHONY: all clean info
+.PHONY: all clean info musl-static
 
 all: exploit
+
+# musl-static: tiny (~55 KB exploit + ~1.5 KB payload), no glibc dependency.
+# Requires musl-tools and linux-libc-dev. musl-gcc isolates its include path
+# and doesn't expose kernel UAPI headers, so we shim them via symlink.
+ARCH := $(shell uname -m)
+musl-static:
+	@mkdir -p .musl-shim
+	@ln -sfn /usr/include/linux        .musl-shim/linux
+	@ln -sfn /usr/include/asm-generic  .musl-shim/asm-generic
+	@ln -sfn /usr/include/$(ARCH)-linux-gnu/asm .musl-shim/asm
+	$(MAKE) CC=musl-gcc \
+	    PAYLOAD_CFLAGS="$(PAYLOAD_CFLAGS) -isystem $(CURDIR)/.musl-shim" \
+	    CFLAGS="$(CFLAGS) -isystem $(CURDIR)/.musl-shim"
 
 payload: payload.c
 	$(CC) $(PAYLOAD_CFLAGS) $< -o $@
@@ -72,7 +85,7 @@ payload.o: payload
 	$(LD) -r -b binary -o $@ $<
 
 exploit: exploit.c payload.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -static -o $@ $^
 
 info: payload payload.o
 	@echo "=== payload size ==="
@@ -86,4 +99,4 @@ info: payload payload.o
 	@readelf -S payload | grep -E 'Name|\.text|\.rodata|\.data|\.bss' | head -10
 
 clean:
-	rm -f exploit payload payload.o
+	rm -rf exploit payload payload.o .musl-shim

@@ -98,6 +98,18 @@ jobs:
             UAPI_LINUX_DIR=${{ matrix.target.uapi_base }}/linux \
             UAPI_ASM_GENERIC_DIR=${{ matrix.target.uapi_base }}/asm-generic \
             UAPI_ASM_DIR=${{ matrix.target.uapi_asm }}
+      - name: strip binary
+        env:
+          LD_PREFIX: ${{ matrix.target.ld_prefix }}
+        run: |
+          STRIP=strip
+          if [ -n "$LD_PREFIX" ]; then
+            STRIP="${LD_PREFIX}-strip"
+          fi
+          BEFORE=$(stat -c%s exploit)
+          "$STRIP" --strip-all exploit
+          AFTER=$(stat -c%s exploit)
+          echo "stripped: $BEFORE -> $AFTER bytes"
       - name: verify
         run: |
           file payload exploit

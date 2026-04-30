@@ -84,12 +84,13 @@ musl-static: musl-shim
 	    PAYLOAD_CFLAGS="$(PAYLOAD_CFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)" \
 	    CFLAGS="$(CFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)"
 
-# zig cc rejects GNU ld's -N/--omagic flag before invoking its linker. Keep the
-# tight page-size hint, which Zig accepts. The generated ABI donor object makes
-# `ld -r -b binary` preserve target-specific ELF flags, such as RISC-V's
-# floating-point ABI, in payload.o.
-ZIG_PAYLOAD_PACK_LDFLAGS ?= -Wl,-z,max-page-size=0x10
+# Empty: zig cc rejects -Wl,-N, so we use lld's default page-size alignment.
+ZIG_PAYLOAD_PACK_LDFLAGS ?=
 ZIG_CC ?= zig cc
+
+# An empty .c file compiled with zig's target gives `ld -r -b binary` an
+# ABI-aware donor object so payload.o keeps target-specific e_flags
+# (e.g. RISC-V's float-ABI bits).
 zig-musl-static: musl-shim
 	@test -n "$(ZIG_TARGET)" || { echo "ZIG_TARGET is required, e.g. x86_64-linux-musl" >&2; exit 1; }
 	$(MAKE) CC="$(ZIG_CC) -target $(ZIG_TARGET)" \

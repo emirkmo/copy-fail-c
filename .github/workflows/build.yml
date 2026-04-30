@@ -57,7 +57,8 @@ jobs:
   # zig cc + musl-static. Produces deploy-anywhere binaries (no glibc
   # version dependency, no dynamic loader). zig ships musl libc for every
   # target; we still need GNU binutils-<arch>-cross for the
-  # `ld -r -b binary` step that wraps the payload as a relocatable .o.
+  # `ld -r -b binary` step that wraps the payload as a relocatable .o,
+  # plus kernel UAPI headers for nolibc and linux/if_alg.h.
   build-musl:
     name: musl / ${{ matrix.target.arch }}
     runs-on: ubuntu-latest
@@ -65,29 +66,34 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { arch: x86_64,  zig_target: x86_64-linux-musl,      ld_pkg: '',                              ld_prefix: '' }
-          - { arch: aarch64, zig_target: aarch64-linux-musl,     ld_pkg: binutils-aarch64-linux-gnu,      ld_prefix: aarch64-linux-gnu }
-          - { arch: armv7,   zig_target: arm-linux-musleabihf,   ld_pkg: binutils-arm-linux-gnueabihf,    ld_prefix: arm-linux-gnueabihf }
-          - { arch: riscv64, zig_target: riscv64-linux-musl,     ld_pkg: binutils-riscv64-linux-gnu,      ld_prefix: riscv64-linux-gnu }
-          - { arch: ppc64le, zig_target: powerpc64le-linux-musl, ld_pkg: binutils-powerpc64le-linux-gnu,  ld_prefix: powerpc64le-linux-gnu }
-          - { arch: s390x,   zig_target: s390x-linux-musl,       ld_pkg: binutils-s390x-linux-gnu,        ld_prefix: s390x-linux-gnu }
+          - { arch: x86_64,  zig_target: x86_64-linux-musl,      apt: '',                                                       ld_prefix: '',                    uapi_base: /usr/include,                          uapi_asm: /usr/include/x86_64-linux-gnu/asm }
+          - { arch: aarch64, zig_target: aarch64-linux-musl,     apt: 'binutils-aarch64-linux-gnu linux-libc-dev-arm64-cross',  ld_prefix: aarch64-linux-gnu,     uapi_base: /usr/aarch64-linux-gnu/include,        uapi_asm: /usr/aarch64-linux-gnu/include/asm }
+          - { arch: armv7,   zig_target: arm-linux-musleabihf,   apt: 'binutils-arm-linux-gnueabihf linux-libc-dev-armhf-cross', ld_prefix: arm-linux-gnueabihf,   uapi_base: /usr/arm-linux-gnueabihf/include,      uapi_asm: /usr/arm-linux-gnueabihf/include/asm }
+          - { arch: riscv64, zig_target: riscv64-linux-musl,     apt: 'binutils-riscv64-linux-gnu linux-libc-dev-riscv64-cross', ld_prefix: riscv64-linux-gnu,     uapi_base: /usr/riscv64-linux-gnu/include,        uapi_asm: /usr/riscv64-linux-gnu/include/asm }
+          - { arch: ppc64le, zig_target: powerpc64le-linux-musl, apt: 'binutils-powerpc64le-linux-gnu linux-libc-dev-ppc64el-cross', ld_prefix: powerpc64le-linux-gnu, uapi_base: /usr/powerpc64le-linux-gnu/include,    uapi_asm: /usr/powerpc64le-linux-gnu/include/asm }
+          - { arch: s390x,   zig_target: s390x-linux-musl,       apt: 'binutils-s390x-linux-gnu linux-libc-dev-s390x-cross',    ld_prefix: s390x-linux-gnu,       uapi_base: /usr/s390x-linux-gnu/include,          uapi_asm: /usr/s390x-linux-gnu/include/asm }
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.14.0
-      - name: install cross-binutils for ld -r -b binary
-        if: matrix.target.ld_pkg != ''
+      - name: install cross-binutils and UAPI headers
+        if: matrix.target.apt != ''
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ${{ matrix.target.ld_pkg }}
+          sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt }}
       - name: build
         run: |
           LD_BIN=ld
           if [ -n "${{ matrix.target.ld_prefix }}" ]; then
             LD_BIN=${{ matrix.target.ld_prefix }}-ld
           fi
-          make CC="zig cc -target ${{ matrix.target.zig_target }}" LD="$LD_BIN"
+          make zig-musl-static \
+            ZIG_TARGET=${{ matrix.target.zig_target }} \
+            LD="$LD_BIN" \
+            UAPI_LINUX_DIR=${{ matrix.target.uapi_base }}/linux \
+            UAPI_ASM_GENERIC_DIR=${{ matrix.target.uapi_base }}/asm-generic \
+            UAPI_ASM_DIR=${{ matrix.target.uapi_asm }}
       - name: verify
         run: |
           file payload exploit

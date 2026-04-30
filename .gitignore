@@ -3,6 +3,7 @@ exploit
 payload
 payload.o
 *.o
+.musl-shim/
 
 # editor / OS detritus
 *.swp

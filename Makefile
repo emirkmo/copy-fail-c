@@ -49,16 +49,16 @@ LDFLAGS ?= -Wl,-z,noexecstack
 #   -Wl,-z,max-page-size=0x10       tell ld page alignment is 16 bytes -- pure
 #                                   on-disk packing, kernel still uses 4 KB
 #                                   pages at runtime
-PAYLOAD_CFLAGS ?= -nostdlib -static -Os -s \
-                  -ffreestanding \
-                  -fno-asynchronous-unwind-tables \
-                  -fno-ident \
-                  -fno-stack-protector \
-                  -Inolibc \
-                  -Wl,-N \
-                  -Wl,-z,max-page-size=0x10
+PAYLOAD_BASE_CFLAGS ?= -nostdlib -static -Os -s \
+                       -ffreestanding \
+                       -fno-asynchronous-unwind-tables \
+                       -fno-ident \
+                       -fno-stack-protector \
+                       -Inolibc
+PAYLOAD_PACK_LDFLAGS ?= -Wl,-N -Wl,-z,max-page-size=0x10
+PAYLOAD_CFLAGS ?= $(PAYLOAD_BASE_CFLAGS) $(PAYLOAD_PACK_LDFLAGS)
 
-.PHONY: all clean info musl-static
+.PHONY: all clean info musl-shim musl-static zig-musl-static
 
 all: exploit
 
@@ -66,14 +66,34 @@ all: exploit
 # Requires musl-tools and linux-libc-dev. musl-gcc isolates its include path
 # and doesn't expose kernel UAPI headers, so we shim them via symlink.
 ARCH := $(shell uname -m)
-musl-static:
-	@mkdir -p .musl-shim
-	@ln -sfn /usr/include/linux        .musl-shim/linux
-	@ln -sfn /usr/include/asm-generic  .musl-shim/asm-generic
-	@ln -sfn /usr/include/$(ARCH)-linux-gnu/asm .musl-shim/asm
+MUSL_SHIM_DIR ?= .musl-shim
+UAPI_LINUX_DIR ?= /usr/include/linux
+UAPI_ASM_GENERIC_DIR ?= /usr/include/asm-generic
+UAPI_ASM_DIR ?= /usr/include/$(ARCH)-linux-gnu/asm
+musl-shim:
+	@test -d "$(UAPI_LINUX_DIR)" || { echo "missing UAPI headers: $(UAPI_LINUX_DIR)" >&2; exit 1; }
+	@test -d "$(UAPI_ASM_GENERIC_DIR)" || { echo "missing UAPI headers: $(UAPI_ASM_GENERIC_DIR)" >&2; exit 1; }
+	@test -d "$(UAPI_ASM_DIR)" || { echo "missing UAPI headers: $(UAPI_ASM_DIR)" >&2; exit 1; }
+	@mkdir -p "$(MUSL_SHIM_DIR)"
+	@ln -sfn "$(UAPI_LINUX_DIR)" "$(MUSL_SHIM_DIR)/linux"
+	@ln -sfn "$(UAPI_ASM_GENERIC_DIR)" "$(MUSL_SHIM_DIR)/asm-generic"
+	@ln -sfn "$(UAPI_ASM_DIR)" "$(MUSL_SHIM_DIR)/asm"
+
+musl-static: musl-shim
 	$(MAKE) CC=musl-gcc \
-	    PAYLOAD_CFLAGS="$(PAYLOAD_CFLAGS) -isystem $(CURDIR)/.musl-shim" \
-	    CFLAGS="$(CFLAGS) -isystem $(CURDIR)/.musl-shim"
+	    PAYLOAD_CFLAGS="$(PAYLOAD_CFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)" \
+	    CFLAGS="$(CFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)"
+
+# zig cc rejects GNU ld's -N/--omagic flag before invoking its linker. Keep the
+# tight page-size hint, which Zig accepts and which still produces compact
+# nolibc payloads for the CI musl matrix.
+ZIG_PAYLOAD_PACK_LDFLAGS ?= -Wl,-z,max-page-size=0x10
+zig-musl-static: musl-shim
+	@test -n "$(ZIG_TARGET)" || { echo "ZIG_TARGET is required, e.g. x86_64-linux-musl" >&2; exit 1; }
+	$(MAKE) CC="zig cc -target $(ZIG_TARGET)" \
+	    LD="$(LD)" \
+	    PAYLOAD_CFLAGS="$(PAYLOAD_BASE_CFLAGS) $(ZIG_PAYLOAD_PACK_LDFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)" \
+	    CFLAGS="$(CFLAGS) -isystem $(CURDIR)/$(MUSL_SHIM_DIR)"
 
 payload: payload.c
 	$(CC) $(PAYLOAD_CFLAGS) $< -o $@

